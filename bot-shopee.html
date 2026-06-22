@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bot Shopee</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0A0E14;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  a { color: inherit; }
+  .topbar {
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    background: rgba(10,14,20,0.95);
+    backdrop-filter: blur(8px);
+    z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-icon {
+    width: 32px; height: 32px; border-radius: 9px;
+    background: linear-gradient(135deg, #2563eb, #7c3aed, #10b981);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .brand-title { font-weight: 600; font-size: 14px; line-height: 1; }
+  .brand-sub { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 3px; }
+  .nav { display: flex; gap: 4px; background: rgba(255,255,255,0.03); border-radius: 10px; padding: 4px; }
+  .nav button {
+    background: transparent; border: none; color: rgba(255,255,255,0.4);
+    font-size: 14px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+    font-family: inherit; transition: all .15s;
+  }
+  .nav button.active { background: rgba(255,255,255,0.1); color: #fff; }
+  .nav button:hover { color: rgba(255,255,255,0.8); }
+
+  .layout {
+    max-width: 1200px; margin: 0 auto; padding: 24px;
+    display: grid; grid-template-columns: 1fr 280px; gap: 24px;
+  }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  .card { background: #12161F; border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; }
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+  @media (max-width: 700px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+  .stat-card { display: flex; align-items: center; gap: 12px; padding: 14px; }
+  .stat-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
+  .stat-label { font-size: 11px; color: rgba(255,255,255,0.4); }
+  .stat-value { font-size: 17px; font-weight: 600; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .filters label { font-size: 12px; color: rgba(255,255,255,0.4); display: flex; align-items: center; gap: 5px; }
+  select, input { background: #0A0E14; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 7px 10px; font-size: 13px; color: #fff; font-family: inherit; }
+  select:focus, input:focus { outline: none; border-color: rgba(124,58,237,0.6); }
+
+  .offers-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 1000px) { .offers-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 650px) { .offers-grid { grid-template-columns: 1fr; } }
+
+  .offer-card { overflow: hidden; display: flex; flex-direction: column; transition: border-color .15s; }
+  .offer-card:hover { border-color: rgba(255,255,255,0.12); }
+  .offer-banner { height: 120px; display: flex; align-items: center; justify-content: center; position: relative; font-size: 32px; }
+  .flash-badge { position: absolute; top: 8px; left: 8px; background: #fbbf24; color: #0A0E14; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 99px; display: flex; align-items: center; gap: 3px; }
+  .offer-body { padding: 14px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
+  .offer-meta { display: flex; justify-content: space-between; font-size: 11px; color: rgba(255,255,255,0.4); }
+  .offer-name { font-size: 13.5px; font-weight: 500; line-height: 1.35; }
+  .price-row { display: flex; gap: 8px; align-items: baseline; }
+  .price-old { font-size: 12px; color: rgba(255,255,255,0.35); text-decoration: line-through; }
+  .price-new { color: #34d399; font-weight: 700; }
+  .pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { font-size: 11px; padding: 3px 9px; border-radius: 99px; border: 1px solid; font-weight: 500; }
+  .gain-line { font-size: 11.5px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+  .gain-line b { color: #34d399; }
+  .offer-actions { display: flex; gap: 6px; margin-top: auto; padding-top: 8px; }
+  .offer-actions button {
+    flex: 1; background: rgba(255,255,255,0.05); border: none; color: rgba(255,255,255,0.8);
+    font-size: 12px; padding: 8px 0; border-radius: 8px; cursor: pointer; font-family: inherit;
+    display: flex; align-items: center; justify-content: center; gap: 5px; transition: background .15s;
+  }
+  .offer-actions button:hover { background: rgba(255,255,255,0.1); }
+
+  .empty-note { text-align: center; color: rgba(255,255,255,0.3); font-size: 13px; padding: 40px 0; grid-column: 1 / -1; }
+  .disclaimer { font-size: 11px; color: rgba(255,255,255,0.25); margin-top: -6px; }
+
+  .sidebar { display: flex; flex-direction: column; gap: 16px; }
+  .sidebar-title { font-size: 12px; color: rgba(255,255,255,0.4); display: flex; align-items: center; gap: 6px; margin-bottom: 12px; padding: 16px 16px 0; }
+  .bot-row { display: flex; align-items: center; gap: 10px; padding: 0 16px; margin-bottom: 11px; }
+  .bot-row:last-child { margin-bottom: 16px; }
+  .bot-icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; position: relative; flex-shrink: 0; }
+  .bot-dot { position: absolute; bottom: -1px; right: -1px; width: 8px; height: 8px; border-radius: 50%; background: #34d399; border: 2px solid #12161F; animation: pulse 1.8s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+  .bot-name { font-size: 12px; color: rgba(255,255,255,0.8); }
+  .bot-role { font-size: 10px; color: rgba(255,255,255,0.3); }
+
+  .activity-item { display: flex; align-items: flex-start; gap: 8px; padding: 0 16px; margin-bottom: 11px; font-size: 12px; }
+  .activity-item:last-child { margin-bottom: 16px; }
+  .activity-text { color: rgba(255,255,255,0.55); line-height: 1.4; }
+  .activity-time { color: rgba(255,255,255,0.25); font-size: 10px; margin-top: 2px; }
+
+  .form-grid { display: flex; flex-direction: column; gap: 12px; padding: 18px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field span { font-size: 11px; color: rgba(255,255,255,0.4); }
+  .field input, .field select { width: 100%; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .btn-primary {
+    flex: 1; background: linear-gradient(90deg, #2563eb, #7c3aed); color: #fff; border: none;
+    font-size: 13.5px; font-weight: 600; padding: 11px 0; border-radius: 10px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 7px; font-family: inherit;
+  }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-ghost { background: transparent; border: none; color: rgba(255,255,255,0.4); font-size: 13px; cursor: pointer; font-family: inherit; padding: 0 12px; }
+  .error-text { color: #fb7185; font-size: 12px; }
+
+  .panel-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; padding: 18px 18px 0; }
+  .pipeline-step { display: flex; align-items: center; gap: 9px; font-size: 13px; padding: 0 18px; margin-bottom: 9px; }
+  .step-icon { width: 16px; text-align: center; flex-shrink: 0; }
+  .step-pending { color: rgba(255,255,255,0.3); }
+  .step-active { color: #60a5fa; }
+  .step-done { color: #34d399; }
+  .step-label-pending { color: rgba(255,255,255,0.3); }
+  .step-label-done, .step-label-active { color: rgba(255,255,255,0.8); }
+  .step-sub { color: rgba(255,255,255,0.25); font-size: 11.5px; }
+  .spin { display: inline-block; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+  .gen-wrap { border-top: 1px solid rgba(255,255,255,0.05); margin: 16px 18px 18px; padding-top: 14px; }
+  .gen-title-suggested { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 10px; }
+  .placeholder-text { color: rgba(255,255,255,0.3); font-size: 13px; padding: 30px 18px; text-align: center; }
+
+  .hist-section { padding: 18px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-icon">🤖</div>
+    <div>
+      <div class="brand-title">Bot Shopee</div>
+      <div class="brand-sub">seu time de bots trabalhando 24h</div>
+    </div>
+  </div>
+  <div class="nav" id="nav"></div>
+</div>
+
+<div class="layout">
+  <div id="main"></div>
+  <div class="sidebar">
+    <div class="card">
+      <div class="sidebar-title">🤖 Sua equipe agora</div>
+      <div id="botRoster"></div>
+    </div>
+    <div class="card">
+      <div class="sidebar-title">⏱ Atividade em tempo real</div>
+      <div id="activityFeed"></div>
+    </div>
+  </div>
+</div>
+
+<canvas id="bannerCanvas" width="600" height="700" style="display:none;"></canvas>
+
+<script type="module">
+  // ---------- Firebase ----------
+  // Config do seu projeto "gerenciador-links". Isso é seguro de ficar público:
+  // a proteção de verdade fica nas Regras do Firestore (Firebase Console > Firestore > Regras).
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, collection, doc, setDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDdjAdizNKwzAgEE23ihRMq8ViKDbecknI",
+    authDomain: "gerenciador-links-5af48.firebaseapp.com",
+    projectId: "gerenciador-links-5af48",
+    storageBucket: "gerenciador-links-5af48.firebasestorage.app",
+    messagingSenderId: "1036983844836",
+    appId: "1:1036983844836:web:362f0a24b428287a3451f1",
+  };
+
+  const firebaseApp = initializeApp(firebaseConfig);
+  const db = getFirestore(firebaseApp);
+
+  window.firebaseHistory = {
+    async save(offer) {
+      try {
+        await setDoc(doc(db, "ofertas_historico", offer.id), offer);
+        return true;
+      } catch (e) {
+        console.error("Erro ao salvar no Firestore:", e);
+        return false;
+      }
+    },
+    async loadAll() {
+      try {
+        const q = query(collection(db, "ofertas_historico"), orderBy("ts", "desc"), limit(30));
+        const snap = await getDocs(q);
+        return snap.docs.map((d) => d.data());
+      } catch (e) {
+        console.error("Erro ao carregar do Firestore:", e);
+        return [];
+      }
+    },
+  };
+
+  // avisa o script principal que o Firebase já está pronto para uso
+  window.dispatchEvent(new Event("firebase-ready"));
+</script>
+
+<script>
+// ---------- Config ----------
+const BOTS = [
+  { id: 1, name: "Caçador de Ofertas", role: "monitora lojas 24h", icon: "🔍", color: "#3B82F6" },
+  { id: 2, name: "Analista de Descontos", role: "calcula desconto real", icon: "📊", color: "#8B5CF6" },
+  { id: 3, name: "Afiliados", role: "gera link e comissão", icon: "🔗", color: "#22C55E" },
+  { id: 4, name: "Copywriter IA", role: "escreve o texto de venda", icon: "✍️", color: "#3B82F6" },
+  { id: 5, name: "Designer", role: "monta a arte da oferta", icon: "🎨", color: "#8B5CF6" },
+  { id: 6, name: "Classificador de Comissão", role: "prioriza lucro", icon: "🏷️", color: "#22C55E" },
+  { id: 7, name: "Supervisor", role: "aprova e envia ao painel", icon: "🛡️", color: "#F4B400" },
+];
+const LOJAS = ["Shopee", "Amazon", "Mercado Livre", "AliExpress"];
+const CATEGORIAS = ["Eletrônicos", "Casa", "Moda", "Beleza", "Esporte", "Brinquedos"];
+const MOCK_OFFERS = [
+  { id: "m1", produto: "Fone Bluetooth TWS Pro X3", loja: "Shopee", categoria: "Eletrônicos", precoAntigo: 89.9, precoAtual: 34.9, comissaoPct: 12, cupom: "FONE10", relampago: true, cor: "#1d4ed8" },
+  { id: "m2", produto: "Air Fryer 5L Inox 1500W", loja: "Mercado Livre", categoria: "Casa", precoAntigo: 349.0, precoAtual: 219.0, comissaoPct: 6, cupom: null, relampago: false, cor: "#7c3aed" },
+  { id: "m3", produto: "Kit Skincare Vitamina C 4 Itens", loja: "Shopee", categoria: "Beleza", precoAntigo: 129.9, precoAtual: 59.9, comissaoPct: 18, cupom: "PELE20", relampago: true, cor: "#16a34a" },
+  { id: "m4", produto: "Mochila Notebook Anti-Furto", loja: "Amazon", categoria: "Moda", precoAntigo: 159.0, precoAtual: 99.0, comissaoPct: 4, cupom: null, relampago: false, cor: "#1e3a8a" },
+  { id: "m5", produto: "Smartwatch Esportivo Tela AMOLED", loja: "AliExpress", categoria: "Eletrônicos", precoAntigo: 249.0, precoAtual: 97.0, comissaoPct: 9, cupom: "RELOGIO15", relampago: true, cor: "#9333ea" },
+  { id: "m6", produto: "Bola de Futebol Society Oficial", loja: "Mercado Livre", categoria: "Esporte", precoAntigo: 119.0, precoAtual: 84.0, comissaoPct: 7, cupom: null, relampago: false, cor: "#15803d" },
+];
+const ACTIVITY_TEMPLATES = [
+  b => `${b} encontrou uma queda de preço na Shopee`,
+  b => `${b} validou um cupom novo no Mercado Livre`,
+  b => `${b} classificou uma oferta como 🟢 alta comissão`,
+  b => `${b} aprovou uma oferta para o painel`,
+  b => `${b} detectou uma promoção relâmpago`,
+  b => `${b} gerou um link de afiliado`,
+  b => `${b} calculou o ganho estimado de uma venda`,
+];
+const PIPELINE_STEPS = [
+  { bot: BOTS[0], label: "Identificando o produto" },
+  { bot: BOTS[1], label: "Calculando desconto real" },
+  { bot: BOTS[2], label: "Gerando link de afiliado e comissão" },
+  { bot: BOTS[3], label: "Escrevendo o texto de venda" },
+  { bot: BOTS[4], label: "Montando a arte da oferta" },
+  { bot: BOTS[5], label: "Classificando a comissão" },
+  { bot: BOTS[6], label: "Aprovando para o painel" },
+];
+
+// ---------- State ----------
+const state = {
+  tab: "dashboard",
+  filtroLoja: "Todas",
+  filtroCategoria: "Todas",
+  activity: [],
+  history: [],
+  copiedKey: null,
+  form: { link: "", produto: "", loja: "Shopee", precoAntigo: "", precoAtual: "", comissaoPct: "", cupom: "", imagemUrl: "" },
+  pipeline: null,
+  generated: null,
+  error: null,
+  busy: false,
+};
+
+// ---------- Helpers ----------
+const fmt = n => `R$ ${n.toFixed(2).replace(".", ",")}`;
+function discountTier(antigo, atual) {
+  const pct = ((antigo - atual) / antigo) * 100;
+  if (pct >= 50) return { label: "Excelente", dot: "🟢", pct, cls: "tier-green" };
+  if (pct >= 25) return { label: "Boa", dot: "🟡", pct, cls: "tier-amber" };
+  return { label: "Fraca", dot: "🔴", pct, cls: "tier-rose" };
+}
+function commissionTier(pct) {
+  if (pct >= 15) return { label: "Alta", dot: "🟢", cls: "tier-green" };
+  if (pct >= 7) return { label: "Média", dot: "🟡", cls: "tier-amber" };
+  return { label: "Baixa", dot: "🔴", cls: "tier-rose" };
+}
+const earnings = (atual, pct) => atual * (pct / 100);
+function tierStyle(cls) {
+  if (cls === "tier-green") return "color:#34d399;background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.3);";
+  if (cls === "tier-amber") return "color:#fbbf24;background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.3);";
+  return "color:#fb7185;background:rgba(251,113,133,.1);border-color:rgba(251,113,133,.3);";
+}
+function fallbackCopy(produto, atual, antigo, cupom) {
+  const pct = Math.round(((antigo - atual) / antigo) * 100);
+  const linhas = [
+    `🔥 ${produto} com ${pct}% OFF`,
+    `De ${fmt(antigo)} por ${fmt(atual)}`,
+    cupom ? `⚠ Use o cupom ${cupom} antes que acabe` : `🚨 Estoque limitado`,
+    `Corre que essa pode sumir do site!`,
+  ];
+  return { titulo: `${produto} — ${pct}% OFF`, texto: linhas.join("\n"), hashtags: ["#promocao", "#achadinhos", "#oferta"] };
+}
+// ---------- Backend ----------
+// Endereço do servidor backend (o mesmo que rodamos com "npm start").
+// Quando você hospedar o backend (Railway/Render), troque esta linha pela URL pública dele.
+const BACKEND_URL = "http://localhost:3000";
+
+async function chamarBackendGerarOferta(payload) {
+  const res = await fetch(`${BACKEND_URL}/api/gerar-oferta`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.erro || "Erro ao gerar oferta no backend");
+  return data;
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "", curY = y;
+  for (let i = 0; i < words.length; i++) {
+    const test = line + words[i] + " ";
+    if (ctx.measureText(test).width > maxWidth && i > 0) {
+      ctx.fillText(line, x, curY); line = words[i] + " "; curY += lineHeight;
+    } else line = test;
+  }
+  ctx.fillText(line, x, curY);
+}
+function drawRest(ctx, W, H, o) {
+  const pct = Math.round(((o.precoAntigo - o.precoAtual) / o.precoAntigo) * 100);
+  ctx.fillStyle = "#22C55E"; ctx.beginPath(); ctx.roundRect(60, 24, 130, 40, 10); ctx.fill();
+  ctx.fillStyle = "#0A0E14"; ctx.font = "bold 20px sans-serif"; ctx.textAlign = "left";
+  ctx.fillText(`-${pct}% OFF`, 75, 51);
+  ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.font = "600 18px sans-serif"; ctx.textAlign = "right";
+  ctx.fillText(o.loja, W - 60, 50);
+  ctx.fillStyle = "#fff"; ctx.font = "bold 26px sans-serif"; ctx.textAlign = "left";
+  wrapText(ctx, o.produto, 60, H - 220, W - 120, 32);
+  ctx.font = "20px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.fillText(fmt(o.precoAntigo), 60, H - 150);
+  const sw = ctx.measureText(fmt(o.precoAntigo)).width;
+  ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.beginPath();
+  ctx.moveTo(60, H - 156); ctx.lineTo(60 + sw, H - 156); ctx.stroke();
+  ctx.font = "bold 42px sans-serif"; ctx.fillStyle = "#34D399";
+  ctx.fillText(fmt(o.precoAtual), 60, H - 100);
+  if (o.cupom) {
+    ctx.fillStyle = "#7C3AED"; ctx.beginPath(); ctx.roundRect(60, H - 75, 220, 44, 10); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = "bold 18px sans-serif";
+    ctx.fillText(`🎟 CUPOM: ${o.cupom}`, 75, H - 47);
+  }
+}
+function drawBanner(canvas, o) {
+  return new Promise(resolve => {
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+    const paint = () => {
+      const grad = ctx.createLinearGradient(0, 0, W, H);
+      grad.addColorStop(0, "#0A0E14"); grad.addColorStop(1, o.cor || "#1e3a8a");
+      ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "rgba(255,255,255,0.06)"; ctx.fillRect(60, 70, W - 120, H - 320);
+      ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.font = "bold 28px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("📦", W / 2, 70 + (H - 320) / 2 + 10);
+      drawRest(ctx, W, H, o);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    if (o.imagemUrl) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const grad = ctx.createLinearGradient(0, 0, W, H);
+        grad.addColorStop(0, "#0A0E14"); grad.addColorStop(1, o.cor || "#1e3a8a");
+        ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+        ctx.drawImage(img, 60, 70, W - 120, H - 320);
+        drawRest(ctx, W, H, o);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.onerror = paint;
+      img.src = o.imagemUrl;
+    } else paint();
+  });
+}
+
+// ---------- Persistence (Firestore) ----------
+function whenFirebaseReady(cb) {
+  if (window.firebaseHistory) return cb();
+  window.addEventListener("firebase-ready", cb, { once: true });
+}
+async function loadHistory() {
+  if (!window.firebaseHistory) return;
+  const docs = await window.firebaseHistory.loadAll();
+  if (docs.length) state.history = docs;
+}
+function saveOfferToHistory(offer) {
+  if (!window.firebaseHistory) return;
+  window.firebaseHistory.save(offer).catch(() => {});
+}
+
+// ---------- Actions ----------
+function setTab(t) { state.tab = t; render(); }
+function setFiltroLoja(v) { state.filtroLoja = v; renderMain(); }
+function setFiltroCategoria(v) { state.filtroCategoria = v; renderMain(); }
+function setField(k, v) { state.form[k] = v; }
+
+function flashCopied(key) {
+  state.copiedKey = key;
+  renderMain();
+  setTimeout(() => { state.copiedKey = null; renderMain(); }, 1400);
+}
+function copyOfferText(offer) {
+  const text = offer.copy && offer.copy.texto ? offer.copy.texto : fallbackCopy(offer.produto, offer.precoAtual, offer.precoAntigo, offer.cupom).texto;
+  navigator.clipboard?.writeText(text);
+  flashCopied(offer.id + "-text");
+}
+function copyOfferLink(offer) {
+  navigator.clipboard?.writeText(offer.linkAfiliado || offer.link || "https://shope.ee/exemplo");
+  flashCopied(offer.id + "-link");
+}
+async function downloadOfferArt(offer) {
+  const canvas = document.getElementById("bannerCanvas");
+  const url = await drawBanner(canvas, offer);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `oferta-${(offer.produto || "produto").toLowerCase().replace(/\s+/g, "-").slice(0, 30)}.png`;
+  a.click();
+}
+function resetForm() {
+  state.form = { link: "", produto: "", loja: "Shopee", precoAntigo: "", precoAtual: "", comissaoPct: "", cupom: "", imagemUrl: "" };
+  state.pipeline = null; state.generated = null; state.error = null;
+  renderMain();
+}
+async function runPipeline() {
+  const f = state.form;
+  state.error = null;
+  if (!f.produto || !f.precoAntigo || !f.precoAtual || !f.comissaoPct) {
+    state.error = "Preencha produto, preço antigo, preço atual e % de comissão.";
+    renderMain(); return;
+  }
+  const antigo = parseFloat(String(f.precoAntigo).replace(",", "."));
+  const atual = parseFloat(String(f.precoAtual).replace(",", "."));
+  const comissao = parseFloat(String(f.comissaoPct).replace(",", "."));
+  if (isNaN(antigo) || isNaN(atual) || isNaN(comissao)) {
+    state.error = "Preços e comissão precisam ser números.";
+    renderMain(); return;
+  }
+  state.generated = null;
+  state.busy = true;
+  state.pipeline = PIPELINE_STEPS.map(s => ({ ...s, status: "pending" }));
+  renderMain();
+
+  // dispara a chamada ao backend (calcula desconto/comissão + gera o texto com IA)
+  // e a animação dos bots roda em paralelo, sem travar a interface.
+  const backendPromise = chamarBackendGerarOferta({
+    produto: f.produto, loja: f.loja, precoAntigo: antigo, precoAtual: atual,
+    comissaoPct: comissao, cupom: f.cupom || null, link: f.link || null, imagemUrl: f.imagemUrl || null,
+  }).catch(e => ({ __erro: e.message }));
+
+  let backendData = null;
+  for (let i = 0; i < PIPELINE_STEPS.length; i++) {
+    state.pipeline[i].status = "active";
+    renderMain();
+    if (i === 3) {
+      // espera o backend responder aqui (bot Copywriter IA)
+      backendData = await backendPromise;
+    } else {
+      await new Promise(r => setTimeout(r, 450));
+    }
+    state.pipeline[i].status = "done";
+    renderMain();
+  }
+
+  let offer;
+  if (backendData && !backendData.__erro) {
+    offer = { ...backendData, ts: Date.now(), cor: "#1e3a8a" };
+  } else {
+    // backend fora do ar (ex: você esqueceu de rodar "npm start") — usa fallback local
+    state.error = backendData && backendData.__erro
+      ? `Backend indisponível (${backendData.__erro}). Usando texto padrão.`
+      : null;
+    offer = {
+      id: "gen-" + Date.now(),
+      produto: f.produto, loja: f.loja, precoAntigo: antigo, precoAtual: atual, comissaoPct: comissao,
+      cupom: f.cupom || null, link: f.link, imagemUrl: f.imagemUrl || null,
+      linkAfiliado: f.link ? `${f.link}${f.link.includes("?") ? "&" : "?"}aff=marcos` : "https://shope.ee/aff-marcos",
+      copy: fallbackCopy(f.produto, atual, antigo, f.cupom), ts: Date.now(), cor: "#1e3a8a",
+    };
+  }
+  state.generated = offer;
+  state.history = [offer, ...state.history].slice(0, 30);
+  saveOfferToHistory(offer);
+  state.busy = false;
+  renderMain();
+}
+
+// ---------- Render: nav ----------
+function renderNav() {
+  const tabs = [
+    { id: "dashboard", label: "Dashboard" },
+    { id: "link", label: "Inserir Link" },
+    { id: "historico", label: "Histórico" },
+  ];
+  document.getElementById("nav").innerHTML = tabs.map(t =>
+    `<button class="${state.tab === t.id ? "active" : ""}" onclick="setTab('${t.id}')">${t.label}</button>`
+  ).join("");
+}
+
+// ---------- Render: offer card ----------
+function offerCardHTML(o) {
+  const d = discountTier(o.precoAntigo, o.precoAtual);
+  const c = commissionTier(o.comissaoPct);
+  const gain = earnings(o.precoAtual, o.comissaoPct);
+  const oJson = encodeURIComponent(JSON.stringify(o));
+  return `
+  <div class="card offer-card">
+    <div class="offer-banner" style="background:linear-gradient(135deg,#0A0E14,${o.cor || "#1e3a8a"})">
+      ${o.relampago ? `<div class="flash-badge">⚡ RELÂMPAGO</div>` : ""}
+      🛍️
+    </div>
+    <div class="offer-body">
+      <div class="offer-meta"><span>${o.loja}</span><span>${o.categoria || ""}</span></div>
+      <div class="offer-name">${o.produto}</div>
+      <div class="price-row">
+        <span class="price-old">${fmt(o.precoAntigo)}</span>
+        <span class="price-new">${fmt(o.precoAtual)}</span>
+      </div>
+      <div class="pill-row">
+        <span class="pill" style="${tierStyle(d.cls)}">${d.dot} ${Math.round(d.pct)}% off</span>
+        <span class="pill" style="${tierStyle(c.cls)}">${c.dot} comissão ${c.label}</span>
+        ${o.cupom ? `<span class="pill" style="color:#c4b5fd;background:rgba(167,139,250,.1);border-color:rgba(167,139,250,.3);">🎟 ${o.cupom}</span>` : ""}
+      </div>
+      <div class="gain-line">Ganho estimado: <b>${fmt(gain)}</b></div>
+      <div class="offer-actions">
+        <button onclick='handleCopyText("${oJson}")'>${state.copiedKey === o.id + "-text" ? "✓" : "📋"} Texto</button>
+        <button onclick='handleCopyLink("${oJson}")'>${state.copiedKey === o.id + "-link" ? "✓" : "🔗"} Link</button>
+        <button onclick='handleDownload("${oJson}")'>⬇ Arte</button>
+      </div>
+    </div>
+  </div>`;
+}
+function handleCopyText(encoded) { copyOfferText(JSON.parse(decodeURIComponent(encoded))); }
+function handleCopyLink(encoded) { copyOfferLink(JSON.parse(decodeURIComponent(encoded))); }
+function handleDownload(encoded) { downloadOfferArt(JSON.parse(decodeURIComponent(encoded))); }
+
+// ---------- Render: dashboard ----------
+function renderDashboard() {
+  const filtered = MOCK_OFFERS.filter(o =>
+    (state.filtroLoja === "Todas" || o.loja === state.filtroLoja) &&
+    (state.filtroCategoria === "Todas" || o.categoria === state.filtroCategoria)
+  );
+  const totalGanho = MOCK_OFFERS.reduce((s, o) => s + earnings(o.precoAtual, o.comissaoPct), 0);
+  const relampagoCount = MOCK_OFFERS.filter(o => o.relampago).length;
+  const cupomCount = MOCK_OFFERS.filter(o => o.cupom).length;
+
+  return `
+  <div class="stats-grid">
+    <div class="card stat-card"><div class="stat-icon" style="background:rgba(59,130,246,.1);color:#3b82f6;">🛍️</div><div><div class="stat-label">Ofertas encontradas</div><div class="stat-value">${MOCK_OFFERS.length}</div></div></div>
+    <div class="card stat-card"><div class="stat-icon" style="background:rgba(244,180,0,.1);color:#f4b400;">⚡</div><div><div class="stat-label">Relâmpago ativas</div><div class="stat-value">${relampagoCount}</div></div></div>
+    <div class="card stat-card"><div class="stat-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;">🏷️</div><div><div class="stat-label">Cupons ativos</div><div class="stat-value">${cupomCount}</div></div></div>
+    <div class="card stat-card"><div class="stat-icon" style="background:rgba(34,197,94,.1);color:#22c55e;">💰</div><div><div class="stat-label">Ganho estimado</div><div class="stat-value">${fmt(totalGanho)}</div></div></div>
+  </div>
+  <div class="filters">
+    <label>🔎 Filtros</label>
+    <select onchange="setFiltroLoja(this.value)">
+      <option ${state.filtroLoja === "Todas" ? "selected" : ""}>Todas</option>
+      ${LOJAS.map(l => `<option ${state.filtroLoja === l ? "selected" : ""}>${l}</option>`).join("")}
+    </select>
+    <select onchange="setFiltroCategoria(this.value)">
+      <option ${state.filtroCategoria === "Todas" ? "selected" : ""}>Todas</option>
+      ${CATEGORIAS.map(c => `<option ${state.filtroCategoria === c ? "selected" : ""}>${c}</option>`).join("")}
+    </select>
+  </div>
+  <div class="offers-grid">
+    ${filtered.length ? filtered.map(offerCardHTML).join("") : `<div class="empty-note">Nenhuma oferta com esses filtros.</div>`}
+  </div>
+  <div class="disclaimer">* Ofertas acima são uma demonstração do painel. O monitoramento real de Shopee/Amazon/Mercado Livre exige um backend com varredura contínua (Bot 1) — use a aba "Inserir Link" para gerar uma oferta real agora.</div>
+  `;
+}
+
+// ---------- Render: link tab ----------
+function renderLinkTab() {
+  const f = state.form;
+  const pipelineHTML = state.pipeline ? state.pipeline.map(s => {
+    const icon = s.status === "done" ? `<span style="color:#34d399;">✓</span>` : s.status === "active" ? `<span class="spin" style="color:#60a5fa;">⟳</span>` : `<span class="step-pending">○</span>`;
+    const labelCls = s.status === "pending" ? "step-label-pending" : "step-label-active";
+    return `<div class="pipeline-step"><span class="step-icon">${icon}</span><span class="${labelCls}">${s.bot.name}</span><span class="step-sub">— ${s.label}</span></div>`;
+  }).join("") : `<div class="placeholder-text">Preencha os dados e clique em "Acionar bots".</div>`;
+
+  const genHTML = state.generated ? `
+    <div class="gen-wrap">
+      ${offerCardHTML(state.generated)}
+      ${state.generated.copy && state.generated.copy.titulo ? `<div class="gen-title-suggested"><b style="color:rgba(255,255,255,.7)">Título sugerido:</b> ${state.generated.copy.titulo}</div>` : ""}
+    </div>` : "";
+
+  return `
+  <div class="two-col">
+    <div class="card">
+      <div class="panel-title">🔗 Inserir oferta manualmente</div>
+      <div class="form-grid">
+        <div class="field"><span>Link do produto</span><input id="f_link" value="${f.link}" oninput="setField('link', this.value)" placeholder="https://shopee.com.br/produto..."></div>
+        <div class="field"><span>Nome do produto *</span><input id="f_produto" value="${f.produto}" oninput="setField('produto', this.value)" placeholder="Fone Bluetooth TWS Pro"></div>
+        <div class="row2">
+          <div class="field"><span>Loja</span>
+            <select id="f_loja" onchange="setField('loja', this.value)">
+              ${LOJAS.map(l => `<option ${f.loja === l ? "selected" : ""}>${l}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field"><span>Cupom (opcional)</span><input id="f_cupom" value="${f.cupom}" oninput="setField('cupom', this.value)" placeholder="PROMO10"></div>
+        </div>
+        <div class="row3">
+          <div class="field"><span>Preço antigo *</span><input id="f_pa" value="${f.precoAntigo}" oninput="setField('precoAntigo', this.value)" placeholder="89,90"></div>
+          <div class="field"><span>Preço atual *</span><input id="f_pn" value="${f.precoAtual}" oninput="setField('precoAtual', this.value)" placeholder="34,90"></div>
+          <div class="field"><span>Comissão % *</span><input id="f_com" value="${f.comissaoPct}" oninput="setField('comissaoPct', this.value)" placeholder="12"></div>
+        </div>
+        <div class="field"><span>URL da imagem do produto (opcional)</span><input id="f_img" value="${f.imagemUrl}" oninput="setField('imagemUrl', this.value)" placeholder="https://..."></div>
+        ${state.error ? `<div class="error-text">${state.error}</div>` : ""}
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button class="btn-primary" onclick="runPipeline()" ${state.busy ? "disabled" : ""}>✨ Acionar bots</button>
+          <button class="btn-ghost" onclick="resetForm()">Limpar</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="panel-title">🤖 Pipeline dos bots</div>
+      <div style="padding-top:14px;">${pipelineHTML}</div>
+      ${genHTML}
+    </div>
+  </div>`;
+}
+
+// ---------- Render: history tab ----------
+function renderHistoryTab() {
+  return `
+  <div class="card hist-section">
+    <div class="panel-title" style="padding:0 0 14px;">📜 Histórico de ofertas geradas</div>
+    ${state.history.length === 0 ? `<div class="placeholder-text">Nenhuma oferta gerada ainda.</div>` :
+      `<div class="offers-grid">${state.history.map(offerCardHTML).join("")}</div>`}
+  </div>`;
+}
+
+// ---------- Render: main ----------
+function renderMain() {
+  // preserve focus/cursor on inputs across re-render of the link tab
+  const active = document.activeElement;
+  const activeId = active && active.id;
+  const selStart = active && typeof active.selectionStart === "number" ? active.selectionStart : null;
+
+  const html =
+    state.tab === "dashboard" ? renderDashboard() :
+    state.tab === "link" ? renderLinkTab() :
+    renderHistoryTab();
+  document.getElementById("main").innerHTML = html;
+
+  if (activeId) {
+    const el = document.getElementById(activeId);
+    if (el) {
+      el.focus();
+      if (selStart !== null && el.setSelectionRange) {
+        try { el.setSelectionRange(selStart, selStart); } catch (e) {}
+      }
+    }
+  }
+}
+
+// ---------- Render: sidebar ----------
+function renderBotRoster() {
+  document.getElementById("botRoster").innerHTML = BOTS.map(b => `
+    <div class="bot-row">
+      <div class="bot-icon" style="background:${b.color}1A;color:${b.color};">
+        ${b.icon}<span class="bot-dot"></span>
+      </div>
+      <div>
+        <div class="bot-name">${b.name}</div>
+        <div class="bot-role">${b.role}</div>
+      </div>
+    </div>
+  `).join("");
+}
+function renderActivity() {
+  document.getElementById("activityFeed").innerHTML = state.activity.map(a => {
+    const secs = Math.max(0, Math.floor((Date.now() - a.ts) / 1000));
+    return `<div class="activity-item">
+      <span style="color:${a.color};">›</span>
+      <div><div class="activity-text">${a.text}</div><div class="activity-time">${secs <= 1 ? "agora mesmo" : `há ${secs}s`}</div></div>
+    </div>`;
+  }).join("");
+}
+
+function render() {
+  renderNav();
+  renderMain();
+  renderBotRoster();
+  renderActivity();
+}
+
+// ---------- Background loops ----------
+function addActivity() {
+  const bot = BOTS[Math.floor(Math.random() * BOTS.length)];
+  const tpl = ACTIVITY_TEMPLATES[Math.floor(Math.random() * ACTIVITY_TEMPLATES.length)];
+  state.activity = [{ id: Date.now() + Math.random(), text: tpl(bot.name), color: bot.color, ts: Date.now() }, ...state.activity].slice(0, 6);
+  renderActivity();
+}
+setInterval(() => { renderActivity(); }, 1000); // refresh "Xs atrás" labels
+setInterval(addActivity, 4500);
+
+// ---------- Boot ----------
+function init() {
+  addActivity();
+  render(); // já mostra a tela mesmo antes do Firebase responder
+  whenFirebaseReady(async () => {
+    await loadHistory();
+    if (state.tab === "historico") renderMain();
+  });
+}
+init();
+</script>
+</body>
+</html>
