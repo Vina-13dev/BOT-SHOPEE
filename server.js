@@ -8,11 +8,11 @@ require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
 
-const { parseLink }        = require('./lib/parseLink');
-const { gerarCopy }        = require('./lib/copywriter');
-const { getUltimasOfertas, buscarOfertas } = require('./lib/cacador');
-const { calcularOferta }   = require('./lib/classificador');
-const { gerarLinkAfiliado } = require('./lib/afiliado');
+const { parseLink }        = require('./parseLink');
+const { gerarCopy }        = require('./copywriter');
+const { getUltimasOfertas, buscarOfertas } = require('./cacador');
+const { calcularOferta }   = require('./classificador');
+const { gerarLinkAfiliado } = require('./afiliado');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
