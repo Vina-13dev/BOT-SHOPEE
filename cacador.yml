@@ -1,33 +1,33 @@
 name: Bot Caçador de Ofertas
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
-  workflow_dispatch: {}
+schedule:
+- cron: '*/15 * * * *' # Roda a cada 15 minutos
+workflow_dispatch: {} # Permite rodar manualmente
 
 jobs:
-  buscar-ofertas:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout do código
-        uses: actions/checkout@v4
+buscar-ofertas:
+runs-on: ubuntu-latest
+timeout-minutes: 5
+steps:
+- name: Checkout do código
+uses: actions/checkout@v4
 
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
+- name: Configurar Node.js
+uses: actions/setup-node@v4
+with:
+node-version: "20"
+cache: "npm"
 
-      - name: Instalar dependências
-        run: npm ci
+- name: Instalar dependências
+run: npm ci
 
-      - name: Rodar Bot Caçador
-        run: npm run cacador
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          OWNER_UID: ${{ secrets.OWNER_UID }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          MIN_DESCONTO_PCT: "25"
-          MIN_COMISSAO_PCT: "7"
+- name: Rodar Bot Cacador
+run: npm run cacador
+env:
+FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+OWNER_UID: ${{ secrets.OWNER_UID }}
+GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+MIN_DESCONTO_PCT: "25"
+MIN_COMISSÃO_PCT: "7"
