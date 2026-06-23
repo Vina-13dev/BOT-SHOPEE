@@ -2,8 +2,8 @@ name: Bot Caçador de Ofertas
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # a cada 15 minutos
-  workflow_dispatch: {}       # disparo manual pelo painel do GitHub
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
 
 jobs:
   buscar-ofertas:
@@ -18,10 +18,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
 
       - name: Instalar dependências
-        run: npm ci
+        run: npm install
 
       - name: Instalar Chromium para o Puppeteer
         run: npx puppeteer browsers install chrome
