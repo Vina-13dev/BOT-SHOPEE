@@ -6,7 +6,7 @@
 //
 // Chamado pelo GitHub Actions (scripts/buscarOfertas.js) a cada 15 min.
 // Para testar localmente:
-//   node -e "require('./lib/cacador').buscarOfertas().then(console.log)"
+//   node -e "require('./cacador').buscarOfertas().then(console.log)"
 
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
