@@ -10,11 +10,11 @@
 //   6) Grava no Firestore (coleção "ofertas") e registra log
 
 require('dotenv').config();
-const { getFirestoreAdmin }  = require('./lib/firebaseAdmin');
-const { buscarOfertas }      = require('./lib/cacador');
-const { calcularOferta }     = require('./lib/classificador');
-const { gerarLinkAfiliado }  = require('./lib/afiliado');
-const { gerarCopy }          = require('./lib/copywriter');
+const { getFirestoreAdmin }  = require('./firebaseAdmin');
+const { buscarOfertas }      = require('./cacador');
+const { calcularOferta }     = require('./classificador');
+const { gerarLinkAfiliado }  = require('./afiliado');
+const { gerarCopy }          = require('./copywriter');
 
 const MIN_DESCONTO_PCT = Number(process.env.MIN_DESCONTO_PCT || 15);
 const MIN_COMISSAO_PCT = Number(process.env.MIN_COMISSAO_PCT || 7);
