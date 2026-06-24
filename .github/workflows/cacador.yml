@@ -2,14 +2,13 @@ name: Bot Caçador de Ofertas
 
 on:
 schedule:
-# Roda a cada 30 minutos, mas em horários "quebrados" (ex: 02, 32) para evitar picos de detecção
 - cron: "2,32 * * * *"
 workflow_dispatch: {}
 
 jobs:
-buscar-ofertas:
+executar-bot:
 runs-on: ubuntu-latest
-timeout-minutes: 25 # Aumentado para garantir tempo de retry e proxies lentos
+timeout-minutes: 25
 
 steps:
 - name: Checkout do código
@@ -34,5 +33,4 @@ OWNER_UID: ${{ secrets.OWNER_UID }}
 GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 MIN_COMISSAO_PCT: "5"
-# ADICIONE ESTA LINHA:
 PROXY_LIST: ${{ secrets.PROXY_LIST }}
