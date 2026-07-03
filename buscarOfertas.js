@@ -49,11 +49,15 @@ async function run() {
     let copy = null;
     try {
       copy = await gerarCopy({
-        produto:     oferta.produto,
-        precoAntigo: oferta.precoAntigo,
-        precoAtual:  oferta.precoAtual,
-        cupom:       oferta.cupom,
-        loja:        oferta.loja,
+        produto:      oferta.produto,
+        precoAntigo:  oferta.precoAntigo,
+        precoAtual:   oferta.precoAtual,
+        cupom:        oferta.cupom,
+        loja:         oferta.loja,
+        nota:         oferta.nota ?? null,
+        vendas:       oferta.vendas ?? null,
+        freteGratis:  !!oferta.freteGratis,
+        vendedorLider: !!oferta.vendedorLider,
       });
     } catch (e) {
       console.warn(`[Bot] Copy falhou: ${e.message}`);
