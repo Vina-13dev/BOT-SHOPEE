@@ -31,6 +31,84 @@ function calcularDesconto(antigo, atual) {
   return Math.round(((antigo - atual) / antigo) * 100);
 }
 
+// ─── Histórico de menor preço (30 dias) ─────────────────────────────────────
+// Usa o ID ESTÁVEL do produto (ml-MLBUxxxx / shopee-xxxx) — só existe porque
+// já resolvemos isso antes. Guarda só o mínimo + quando foi visto, não cada
+// preço de cada varredura (senão ia virar milhares de registros por mês).
+// Se o "menor preço" registrado tem mais de 30 dias, reseta — não faz
+// sentido continuar comparando com um preço de 2 meses atrás.
+async function atualizarHistoricoPreco(db, produtoId, precoAtual) {
+  const ref = db.collection('historico_precos').doc(produtoId);
+  const snap = await ref.get().catch(() => null);
+  const agora = new Date();
+  const dados = snap?.exists ? snap.data() : null;
+
+  let menorPreco = precoAtual;
+  let menorPrecoEm = agora.toISOString();
+
+  if (dados?.menorPreco != null && dados?.menorPrecoEm) {
+    const dias = (agora - new Date(dados.menorPrecoEm)) / (1000 * 60 * 60 * 24);
+    if (dias <= 30 && dados.menorPreco <= precoAtual) {
+      menorPreco = dados.menorPreco;
+      menorPrecoEm = dados.menorPrecoEm;
+    }
+    // senão: preço atual é o novo menor, OU o registro antigo já passou de
+    // 30 dias — os dois casos resetam pro preço de agora.
+  }
+
+  await ref.set({ menorPreco, menorPrecoEm, ultimoPreco: precoAtual, atualizadoEm: agora.toISOString() }, { merge: true })
+    .catch((e) => console.warn(`[Histórico preço] falhou pra ${produtoId}:`, e.message));
+
+  return { menorPreco30d: menorPreco, ehMenorPreco: precoAtual <= menorPreco };
+}
+
+// ─── Monitor de saúde ────────────────────────────────────────────────────────
+// Se o ML/Shopee mudar o site e o scraping quebrar, o bot passa a achar 0
+// ofertas sem dar erro nenhum (do jeito que ele foi feito pra não travar).
+// Isso avisa quando isso acontecer, em vez de você só descobrir quando abrir
+// o app e ver tudo vazio. Funciona com Discord ou Slack (formato de webhook
+// é compatível com os dois) — configure HEALTH_WEBHOOK_URL nos Secrets do
+// GitHub pra ativar. Sem essa variável, só ignora (não quebra o bot).
+async function verificarSaude(db, totalEncontrado) {
+  const webhookUrl = process.env.HEALTH_WEBHOOK_URL;
+  const LIMITE_VARREDURAS_VAZIAS = 2; // 2 varreduras seguidas vazias = ~30 min sem nada
+
+  const ref = db.collection('bot_status').doc('saude');
+  const snap = await ref.get().catch(() => null);
+  const anterior = snap?.exists ? snap.data() : { vaziasSeguidas: 0, alertaEnviado: false };
+
+  const vaziasSeguidas = totalEncontrado > 0 ? 0 : (anterior.vaziasSeguidas || 0) + 1;
+  const estavaEmAlerta = !!anterior.alertaEnviado;
+  const deveAlertar = vaziasSeguidas >= LIMITE_VARREDURAS_VAZIAS && !estavaEmAlerta;
+  const deveAvisarRecuperado = totalEncontrado > 0 && estavaEmAlerta;
+
+  await ref.set({
+    vaziasSeguidas,
+    alertaEnviado: estavaEmAlerta && !deveAvisarRecuperado ? true : (deveAlertar ? true : false),
+    ultimaChecagem: new Date().toISOString(),
+  }).catch((e) => console.warn('[Saúde] falhou ao salvar status:', e.message));
+
+  if (!webhookUrl) return; // ninguém configurou alerta, tudo bem
+
+  try {
+    if (deveAlertar) {
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: `⚠️ *Bot Caçador de Ofertas*: ${vaziasSeguidas} varreduras seguidas sem encontrar nada. O Mercado Livre (ou Shopee) pode ter mudado o site — vale conferir o log do GitHub Actions.` }),
+      });
+    } else if (deveAvisarRecuperado) {
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: `✅ *Bot Caçador de Ofertas*: voltou a encontrar ofertas normalmente (${totalEncontrado} agora).` }),
+      });
+    }
+  } catch (e) {
+    console.warn('[Saúde] falhou ao enviar webhook:', e.message);
+  }
+}
+
 async function run() {
   const db       = getFirestoreAdmin();
   const afiliadoDono = await carregarAfiliadoDono(db); // só fallback pra visitante não logado
@@ -65,6 +143,15 @@ async function run() {
 
     const descontoPct = calcularDesconto(oferta.precoAntigo, oferta.precoAtual);
 
+    // Histórico de menor preço — só faz sentido pra quem tem ID ESTÁVEL
+    // (ml-... ou shopee-...). Anúncios patrocinados/redirect ainda usam ID
+    // aleatório às vezes (ver cacador.js) e não dá pra rastrear histórico
+    // deles de forma confiável.
+    let precoInfo = { menorPreco30d: oferta.precoAtual, ehMenorPreco: true };
+    if (/^(ml|shopee)-/.test(oferta.id)) {
+      precoInfo = await atualizarHistoricoPreco(db, oferta.id, oferta.precoAtual);
+    }
+
     // Monta objeto com apenas tipos primitivos — sem objetos especiais do Firestore
     const doc = {
       id:           oferta.id,
@@ -77,6 +164,13 @@ async function run() {
       comissaoPct:  oferta.comissaoPct,
       cupom:        oferta.cupom || null,
       relampago:    oferta.relampago || false,
+      pixOnly:      !!oferta.pixOnly,
+      nota:         oferta.nota ?? null,
+      vendas:       oferta.vendas ?? null,
+      freteGratis:  !!oferta.freteGratis,
+      vendedorLider: !!oferta.vendedorLider,
+      menorPreco30d: precoInfo.menorPreco30d,
+      ehMenorPreco:  precoInfo.ehMenorPreco,
       link:         oferta.link || null,
       imagemUrl:    oferta.imagemUrl || null,
       // fallback de demo (dono da conta); cada usuário logado recalcula com
@@ -102,6 +196,11 @@ async function run() {
   atuais.forEach(d => batch.delete(d.ref));
   aprovadas.forEach(o => batch.set(db.collection('ofertas').doc(o.id), o));
   await batch.commit();
+
+  // Monitor de saúde — avisa (se HEALTH_WEBHOOK_URL estiver configurado)
+  // quando o bot passa a achar 0 ofertas por varreduras seguidas, sinal de
+  // que o site mudou e o scraping quebrou.
+  await verificarSaude(db, brutas.length);
 
   // Log simples com apenas primitivos — sem AggregateQuery
   await db.collection('logs').add({
