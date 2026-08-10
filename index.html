@@ -167,6 +167,10 @@
       <div class="sidebar-title">⏱ Atividade em tempo real</div>
       <div id="activityFeed"></div>
     </div>
+    <div class="card">
+      <div class="sidebar-title">📊 O que mais performa</div>
+      <div id="statsWidget"></div>
+    </div>
   </div>
 </div>
 
@@ -175,7 +179,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
-    getFirestore, collection, doc, setDoc, getDoc, getDocs, query, orderBy, limit, where, deleteDoc,
+    getFirestore, collection, doc, setDoc, getDoc, getDocs, query, orderBy, limit, where, deleteDoc, increment,
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   import {
     getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut,
@@ -277,6 +281,29 @@
     },
   };
 
+  // Conta quantas vezes você compartilhou de cada loja/categoria — pra você
+  // ver o que realmente performa, sem precisar de servidor de rastreio
+  // nenhum. Um doc por usuário, dois mapas simples (loja e categoria) com
+  // contadores que só sobem (increment do Firestore, seguro mesmo se você
+  // usar em duas abas ao mesmo tempo).
+  window.firebaseStats = {
+    async registrar(uid, loja, categoria) {
+      try {
+        const campos = {};
+        if (loja) campos[`porLoja.${loja}`] = increment(1);
+        if (categoria) campos[`porCategoria.${categoria}`] = increment(1);
+        if (Object.keys(campos).length === 0) return;
+        await setDoc(doc(db, "estatisticas", uid), campos, { merge: true });
+      } catch (e) { console.warn("Erro ao registrar estatística:", e); }
+    },
+    async carregar(uid) {
+      try {
+        const snap = await getDoc(doc(db, "estatisticas", uid));
+        return snap.exists() ? snap.data() : { porLoja: {}, porCategoria: {} };
+      } catch (e) { return { porLoja: {}, porCategoria: {} }; }
+    },
+  };
+
   window.dispatchEvent(new Event("firebase-ready"));
 </script>
 
@@ -325,6 +352,7 @@ const state = {
   ofertasBot: [],
   linksProntos: {}, // { [offerId]: "https://meli.la/xxx" } — colado à mão do Portal do Afiliado
   pendingSaves: {}, // { [offerId]: Promise } — salvamentos em andamento no Firestore
+  stats: { porLoja: {}, porCategoria: {} },
   copiedKey: null,
   form: { link: "", produto: "", loja: "Shopee", precoAntigo: "", precoAtual: "", comissaoPct: "", cupom: "", imagemUrl: "", linkAfiliado: "" },
   pipeline: null,
@@ -391,9 +419,10 @@ function gerarMensagemWhatsApp(offer) {
   const nome = offer.copy?.titulo || nomeCurtoLocal(offer.produto);
 
   const linhas = [`🔥 *${nome}*${pct > 0 ? ` — ${pct}% OFF` : ""}`];
-  if (antigo > 0 && atual > 0) linhas.push(`De ${fmt(antigo)} por *${fmt(atual)}*`);
-  else if (atual > 0) linhas.push(`Por apenas *${fmt(atual)}*`);
+  if (antigo > 0 && atual > 0) linhas.push(`De ${fmt(antigo)} por *${fmt(atual)}*${offer.pixOnly ? " 💳 *(preço no Pix)*" : ""}`);
+  else if (atual > 0) linhas.push(`Por apenas *${fmt(atual)}*${offer.pixOnly ? " 💳 *(preço no Pix)*" : ""}`);
   if (offer.cupom) linhas.push(`🎟 Cupom: *${offer.cupom}*`);
+  if (offer.ehMenorPreco && antigo > 0) linhas.push(`🔥 Menor preço dos últimos 30 dias`);
   linhas.push(offer.copy?.texto || "Corre que pode sumir do site! 🏃");
   if (link) linhas.push(`\n🛒 ${link}`);
 
@@ -616,6 +645,11 @@ async function loadLinksProntos(uid) {
   if (!window.firebaseLinksProntos) return;
   state.linksProntos = await window.firebaseLinksProntos.carregar(uid);
 }
+async function loadStats(uid) {
+  if (!window.firebaseStats) return;
+  const dados = await window.firebaseStats.carregar(uid);
+  state.stats = { porLoja: dados.porLoja || {}, porCategoria: dados.porCategoria || {} };
+}
 
 // ---------- Auth ----------
 async function loginGoogle() {
@@ -624,6 +658,7 @@ async function loginGoogle() {
     state.user = user;
     await loadAfiliado(user.uid);
     await loadLinksProntos(user.uid);
+    await loadStats(user.uid);
     render();
   } catch (e) { alert("Não foi possível entrar: " + e.message); }
 }
@@ -691,6 +726,13 @@ async function colarDoClipboard(offerId) {
 // no celular (deixa escolher status, grupo, contato) ou abre o WhatsApp Web
 // no computador. Espera o link colado terminar de salvar ANTES de sair da
 // página — ver comentário em confirmarMeliLink().
+function registrarClique(offer) {
+  if (!state.user) return; // sem login não tem onde guardar por pessoa
+  state.stats.porLoja[offer.loja] = (state.stats.porLoja[offer.loja] || 0) + 1;
+  if (offer.categoria) state.stats.porCategoria[offer.categoria] = (state.stats.porCategoria[offer.categoria] || 0) + 1;
+  window.firebaseStats?.registrar(state.user.uid, offer.loja, offer.categoria).catch(() => {});
+}
+
 async function compartilharOferta(offer) {
   if (state.pendingSaves[offer.id]) {
     try { await state.pendingSaves[offer.id]; } catch (e) { /* já logado acima */ }
@@ -699,8 +741,10 @@ async function compartilharOferta(offer) {
   try {
     if (navigator.share) {
       await navigator.share({ text: msg });
+      registrarClique(offer);
     } else {
       window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, "_blank");
+      registrarClique(offer);
     }
   } catch (e) {
     // AbortError = o próprio usuário fechou o menu de compartilhar, não é erro.
@@ -879,10 +923,12 @@ function offerCardHTML(o) {
         ${precoAntigoHTML}
         <span class="price-new">${fmt(o.precoAtual)}</span>
       </div>
+      ${o.pixOnly ? `<div style="font-size:11px;color:#fbbf24;margin-top:-6px;margin-bottom:8px;">💳 Esse preço é só pagando no Pix</div>` : ""}
       <div class="pill-row">
         ${descPillHTML}
         <span class="pill" style="${tierStyle(c.cls)}">${c.dot} comissão ${c.label}</span>
         ${o.cupom ? `<span class="pill" style="color:#c4b5fd;background:rgba(167,139,250,.1);border-color:rgba(167,139,250,.3);">🎟 ${o.cupom}</span>` : ""}
+        ${o.ehMenorPreco && o.precoAntigo > 0 ? `<span class="pill" style="color:#fca5a5;background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.3);">🔥 menor preço em 30 dias</span>` : ""}
         ${linkMLPronto ? `<span class="pill" style="color:#34d399;background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.3);">✅ link pronto</span>` : ""}
       </div>
       <div class="gain-line">Ganho estimado: <b>${fmt(gain)}</b></div>
@@ -1139,7 +1185,38 @@ function renderActivity() {
   }).join("");
 }
 
-function render() { renderNav(); renderMain(); renderBotRoster(); renderActivity(); renderAuthBox(); }
+function renderStats() {
+  const el = document.getElementById("statsWidget");
+  if (!el) return;
+
+  if (!state.user) {
+    el.innerHTML = `<div style="font-size:12px;color:#6b7280;">Entra pra ver o que mais converte pra você.</div>`;
+    return;
+  }
+
+  const top = (mapa, limite = 3) =>
+    Object.entries(mapa || {}).sort((a, b) => b[1] - a[1]).slice(0, limite);
+
+  const lojas = top(state.stats.porLoja);
+  const categorias = top(state.stats.porCategoria);
+
+  if (lojas.length === 0 && categorias.length === 0) {
+    el.innerHTML = `<div style="font-size:12px;color:#6b7280;">Ainda sem dado — compartilha algumas ofertas que essa área enche sozinha.</div>`;
+    return;
+  }
+
+  const linha = ([nome, n]) => `
+    <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;">
+      <span style="color:#d1d5db;">${nome}</span><span style="color:#9ca3af;">${n}×</span>
+    </div>`;
+
+  el.innerHTML = `
+    ${lojas.length ? `<div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:2px;">Lojas</div>${lojas.map(linha).join("")}` : ""}
+    ${categorias.length ? `<div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin:8px 0 2px;">Categorias</div>${categorias.map(linha).join("")}` : ""}
+  `;
+}
+
+function render() { renderNav(); renderMain(); renderBotRoster(); renderActivity(); renderAuthBox(); renderStats(); }
 
 function addActivity() {
   const bot = BOTS[Math.floor(Math.random() * BOTS.length)];
@@ -1158,7 +1235,7 @@ function init() {
     renderMain();
     window.firebaseAuth.onChange(async (user) => {
       state.user = user;
-      if (user) { await loadAfiliado(user.uid); await loadLinksProntos(user.uid); }
+      if (user) { await loadAfiliado(user.uid); await loadLinksProntos(user.uid); await loadStats(user.uid); }
       render();
     });
   });
