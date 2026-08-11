@@ -141,18 +141,34 @@ async function run() {
     } catch (e) {
       console.warn(`[Bot] Copy falhou: ${e.message}`);
     }
+const descontoPct = calcularDesconto(
+  oferta.precoAntigo,
+  oferta.precoAtual
+);
 
-    const descontoPct = calcularDesconto(oferta.precoAntigo, oferta.precoAtual);
-    const scoreInfo = calcularScoreOferta({ ...oferta, descontoPct, ehMenorPreco: precoInfo.ehMenorPreco });
+// Histórico de menor preço — só faz sentido pra quem tem ID ESTÁVEL
+// (ml-... ou shopee-...). Anúncios patrocinados/redirect ainda usam ID
+// aleatório às vezes (ver cacador.js) e não dá pra rastrear histórico
+// deles de forma confiável.
+let precoInfo = {
+  menorPreco30d: oferta.precoAtual,
+  ehMenorPreco: true
+};
 
-    // Histórico de menor preço — só faz sentido pra quem tem ID ESTÁVEL
-    // (ml-... ou shopee-...). Anúncios patrocinados/redirect ainda usam ID
-    // aleatório às vezes (ver cacador.js) e não dá pra rastrear histórico
-    // deles de forma confiável.
-    let precoInfo = { menorPreco30d: oferta.precoAtual, ehMenorPreco: true };
-    if (/^(ml|shopee)-/.test(oferta.id)) {
-      precoInfo = await atualizarHistoricoPreco(db, oferta.id, oferta.precoAtual);
-    }
+if (/^(ml|shopee)-/.test(oferta.id)) {
+  precoInfo = await atualizarHistoricoPreco(
+    db,
+    oferta.id,
+    oferta.precoAtual
+  );
+}
+
+// Calcula o score somente DEPOIS de obter a informação de menor preço.
+const scoreInfo = calcularScoreOferta({
+  ...oferta,
+  descontoPct,
+  ehMenorPreco: precoInfo.ehMenorPreco
+});
 
     // Monta objeto com apenas tipos primitivos — sem objetos especiais do Firestore
     const doc = {
