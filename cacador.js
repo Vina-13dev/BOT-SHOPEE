@@ -37,6 +37,74 @@ async function encurtarLink(url) {
   });
 }
 
+// ─── Categoria + comissão estimada ──────────────────────────────────────────
+// A comissão de afiliado do Mercado Livre NÃO é um número único — varia bem
+// forte por categoria (eletrônicos fica bem mais baixo, tipo 5%; beleza,
+// moda e esporte chegam a 14-16%). O ML também paga diferente se a venda for
+// "direta" (a pessoa comprou o produto exato do link) ou "indireta" (comprou
+// outra coisa no mesmo carrinho) — às vezes quase metade do valor.
+//
+// Os números aqui são uma ESTIMATIVA conservadora, baseada em várias fontes
+// públicas sobre o programa de afiliados — o ML não expõe uma tabela via
+// scraping, então isso não é 100% garantido. Se notar diferença grande do
+// que cai de verdade no seu Mercado Pago, é só ajustar os números abaixo —
+// é uma tabela simples, não precisa mexer em nenhuma outra lógica.
+const CATEGORIAS_COMISSAO = [
+  { categoria: 'Beleza e Cuidados Pessoais', comissaoPct: 14, palavras: [
+    'creme','shampoo','condicionador','protetor solar','perfume','maquiagem','batom',
+    'hidratante','sérum','serum','base facial','esmalte','depilador','barbeador','sabonete',
+  ]},
+  { categoria: 'Moda e Calçados', comissaoPct: 13, palavras: [
+    'tenis','tênis','sapato','sandália','sandalia','bota','chinelo','cueca','calcinha','sutiã','sutia',
+    'camiseta','camisa','calça','calca','jaqueta','vestido','bolsa','mochila','óculos de sol','oculos de sol',
+    'relógio','relogio','boné','bone',
+  ]},
+  { categoria: 'Esporte e Fitness', comissaoPct: 13, palavras: [
+    'whey','creatina','suplemento','proteina','proteína','bcaa','halter','caneleira','esteira',
+    'bicicleta ergométrica','luva de boxe','tapete de yoga','academia',
+  ]},
+  { categoria: 'Bebê e Infantil', comissaoPct: 10, palavras: [
+    'fralda','lenço umedecido','lenco umedecido','mamadeira','carrinho de bebê','carrinho de bebe',
+    'brinquedo','boneca','lego',
+  ]},
+  { categoria: 'Casa e Cozinha', comissaoPct: 10, palavras: [
+    'panela','fritadeira','air fryer','liquidificador','sanduicheira','toalha','jogo de cama','lençol','lencol',
+    'travesseiro','potes','vidro hermético','vidro hermetico','mangueira','faqueiro','talheres',
+    'papel higiênico','papel higienico','detergente','sabão em pó','sabao em po','desinfetante','organizador',
+  ]},
+  { categoria: 'Ferramentas e Automotivo', comissaoPct: 7, palavras: [
+    'furadeira','parafusadeira','roçadeira','rocadeira','chave de fenda','serra elétrica','esmerilhadeira',
+    'pneu','óleo automotivo','oleo automotivo','farol','bateria automotiva','torquímetro','torquimetro',
+  ]},
+  { categoria: 'Eletrônicos', comissaoPct: 5, palavras: [
+    'celular','smartphone','notebook',' tv ','televisão','televisao','fone de ouvido','câmera','camera',
+    'carregador','power bank','caixa de som','smartwatch','tablet','mouse','teclado','monitor',
+  ]},
+];
+
+function classificarProduto(nome) {
+  const n = ` ${(nome || '').toLowerCase()} `;
+  for (const c of CATEGORIAS_COMISSAO) {
+    if (c.palavras.some(p => n.includes(p))) return { categoria: c.categoria, comissaoPct: c.comissaoPct };
+  }
+  return { categoria: 'Geral', comissaoPct: 8 }; // não reconheceu — fica no meio do caminho
+}
+
+// A Shopee paga uma estrutura de comissão BEM diferente do ML (beleza chega
+// a ser o dobro do que o ML paga, eletrônicos é bem mais baixo) — por isso
+// é uma tabela separada, não os mesmos números. Mesma ressalva: estimativa
+// de fontes públicas, não API oficial.
+const COMISSAO_SHOPEE_POR_CATEGORIA = {
+  'Beleza e Cuidados Pessoais': 18,
+  'Moda e Calçados': 14,
+  'Esporte e Fitness': 12,
+  'Bebê e Infantil': 10,
+  'Casa e Cozinha': 9,
+  'Ferramentas e Automotivo': 6,
+  'Eletrônicos': 4,
+  'Geral': 8,
+};
+
 function limparPreco(v) {
   if (!v && v !== 0) return 0;
   if (typeof v === 'number') return Math.round(v * 100) / 100;
@@ -336,96 +404,4 @@ async function buscarMercadoLivre() {
             p.vendedorLider ? 'líder' : null,
             p.pixOnly ? 'preço no Pix' : null,
           ].filter(Boolean).join(', ');
-          console.log(`[Caçador] ML ✓ "${p.nome.slice(0,40)}" R$${atual}${desc > 0 ? ` (${desc}% OFF)` : ''}${selos ? ` [${selos}]` : ''}${!idDoLinkOriginal ? ' [link patrocinado/redirect]' : ''}`);
-          // ID estável: baseado no código real do anúncio, não em número
-          // aleatório — assim ele não muda a cada varredura de 15 min, e o
-          // link que o usuário colou continua valendo pro mesmo produto.
-          const idEstavel = idDoLinkOriginal;
-          return {
-            id: idEstavel ? `ml-${idEstavel}` : uid('ml'),
-            produto: p.nome, loja: 'Mercado Livre', categoria: 'Eletrônicos',
-            precoAntigo: orig, precoAtual: atual, comissaoPct: 8, cupom: null, relampago: false,
-            nota: p.nota, vendas: p.vendas, freteGratis: p.freteGratis, vendedorLider: p.vendedorLider,
-            pixOnly: !!p.pixOnly,
-            link, // link cru — o de afiliado é montado depois, por usuário
-            imagemUrl: p.img?.replace('http://','https://').replace('-I.jpg','-O.jpg') || null,
-            encontradoEm: new Date().toISOString(),
-          };
-        })
-    );
-
-    return resultado;
-  } catch(e) {
-    console.error('[Caçador] ML falhou:', e.message);
-    return [];
-  } finally {
-    await page.close();
-    await browser.close();
-  }
-}
-
-// ─── Shopee ──────────────────────────────────────────────────────────────────
-// Diferente do ML, a Shopee renderiza tudo via React com classes hash
-// aleatórias — ler o HTML final é muito frágil. O jeito estável é deixar o
-// navegador carregar a página de verdade e ESCUTAR as respostas JSON que a
-// própria Shopee busca por trás dos panos (api/v4/...), que é de onde os
-// dados realmente vêm. Preço da Shopee vem como inteiro *100000 (ex:
-// 4990000 = R$49,90).
-function extrairItensDoJson(obj, out = [], vistos = new Set()) {
-  if (!obj || typeof obj !== 'object') return out;
-  if (Array.isArray(obj)) {
-    for (const el of obj) extrairItensDoJson(el, out, vistos);
-    return out;
-  }
-  // Um "item" da Shopee sempre tem itemid + shopid juntos, em algum nível.
-  if (obj.itemid && obj.shopid && !vistos.has(obj.itemid)) {
-    vistos.add(obj.itemid);
-    out.push(obj);
-  }
-  for (const k in obj) {
-    if (obj[k] && typeof obj[k] === 'object') extrairItensDoJson(obj[k], out, vistos);
-  }
-  return out;
-}
-
-function precoShopee(v) {
-  // Shopee manda o preço com 5 casas decimais embutidas (ex: 4990000 -> 49.90)
-  if (v === null || v === undefined) return 0;
-  const n = Number(v);
-  if (!n) return 0;
-  return Math.round((n / 100000) * 100) / 100;
-}
-
-async function buscarShopee() {
-  console.log('[Caçador] Shopee: iniciando Puppeteer mobile...');
-  const browser = await puppeteer.launch(launchOptions);
-  const page = await browser.newPage();
-  await page.setUserAgent(UA_MOBILE);
-  await page.setViewport({ width: 390, height: 844, isMobile: true });
-
-  const capturados = [];
-  page.on('response', async (res) => {
-    try {
-      const url = res.url();
-      if (!url.includes('/api/v4/')) return;
-      const tipo = res.headers()['content-type'] || '';
-      if (!tipo.includes('application/json')) return;
-      const json = await res.json().catch(() => null);
-      if (json) capturados.push({ url, json });
-    } catch (e) { /* resposta não-JSON ou já consumida — ignora */ }
-  });
-
-  const urls = [
-    'https://shopee.com.br/flash_sale',
-    'https://shopee.com.br/daily_discover',
-    'https://shopee.com.br/',
-  ];
-
-  try {
-    let carregou = false;
-    for (const url of urls) {
-      try {
-        console.log(`[Caçador] Shopee tentando: ${url}`);
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-        await delay(3000);
-     
+  
