@@ -616,70 +616,173 @@ function linkParaMim(offer) {
   return offer.linkAfiliado || "";
 }
 
-function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines = Infinity) {
   const words = text.split(" ");
-  let line = "", curY = y;
+  let line = "", curY = y, linhasUsadas = 0;
   for (let i = 0; i < words.length; i++) {
     const test = line + words[i] + " ";
     if (ctx.measureText(test).width > maxWidth && i > 0) {
+      linhasUsadas++;
+      if (linhasUsadas >= maxLines) {
+        // última linha permitida — corta e põe reticências se ainda sobrar texto
+        let linhaFinal = line.trim();
+        while (ctx.measureText(linhaFinal + "…").width > maxWidth && linhaFinal.length > 1) {
+          linhaFinal = linhaFinal.slice(0, -1);
+        }
+        ctx.fillText(linhaFinal + "…", x, curY);
+        return;
+      }
       ctx.fillText(line, x, curY); line = words[i] + " "; curY += lineHeight;
     } else line = test;
   }
   ctx.fillText(line, x, curY);
 }
+// Desenha uma imagem tipo "cover" (CSS background-size:cover) — preenche a
+// caixa toda sem esticar/distorcer, cortando o excesso e centralizando.
+function drawImageCover(ctx, img, x, y, w, h) {
+  const imgRatio = img.width / img.height;
+  const boxRatio = w / h;
+  let sx, sy, sw, sh;
+  if (imgRatio > boxRatio) {
+    sh = img.height; sw = sh * boxRatio;
+    sx = (img.width - sw) / 2; sy = 0;
+  } else {
+    sw = img.width; sh = sw / boxRatio;
+    sx = 0; sy = (img.height - sh) / 2;
+  }
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+}
+
+function drawPill(ctx, x, y, text, { bg, fg = "#0A0E14", font = "700 26px system-ui, sans-serif", padX = 22, h = 52, align = "left" }) {
+  ctx.font = font;
+  const textW = ctx.measureText(text).width;
+  const w = textW + padX * 2;
+  const drawX = align === "right" ? x - w : x;
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.roundRect(drawX, y, w, h, h / 2);
+  ctx.fill();
+  ctx.fillStyle = fg;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, drawX + padX, y + h / 2 + 1);
+  return w;
+}
+
 function drawRest(ctx, W, H, o) {
   const antigo = o.precoAntigo || 0;
   const atual = o.precoAtual || 0;
   const pct = antigo > 0 ? Math.round(((antigo - atual) / antigo) * 100) : 0;
+  const nome = o.copy?.titulo || o.produto || "Produto";
+
+  // ---- Painel inferior (fundo escuro em degradê, pra texto ficar legível
+  // em cima de qualquer foto) ----
+  const painelY = H * 0.56;
+  const painelGrad = ctx.createLinearGradient(0, painelY, 0, H);
+  painelGrad.addColorStop(0, "rgba(10,14,20,0)");
+  painelGrad.addColorStop(0.18, "rgba(10,14,20,0.94)");
+  painelGrad.addColorStop(1, "#0A0E14");
+  ctx.fillStyle = painelGrad;
+  ctx.fillRect(0, painelY, W, H - painelY);
+
+  // ---- Topo: desconto (esquerda) + loja (direita) ----
   if (pct > 0) {
-    ctx.fillStyle = "#22C55E"; ctx.beginPath(); ctx.roundRect(60, 24, 130, 40, 10); ctx.fill();
-    ctx.fillStyle = "#0A0E14"; ctx.font = "bold 20px sans-serif"; ctx.textAlign = "left";
-    ctx.fillText(`-${pct}% OFF`, 75, 51);
+    drawPill(ctx, 48, 48, `${pct}% OFF`, { bg: "#22C55E", font: "800 30px system-ui, sans-serif", h: 58 });
   }
-  ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.font = "600 18px sans-serif"; ctx.textAlign = "right";
-  ctx.fillText(o.loja, W - 60, 50);
-  ctx.fillStyle = "#fff"; ctx.font = "bold 26px sans-serif"; ctx.textAlign = "left";
-  wrapText(ctx, o.produto || "Produto", 60, H - 220, W - 120, 32);
+  drawPill(ctx, W - 48, 48, o.loja || "", { bg: "rgba(10,14,20,0.72)", fg: "#fff", font: "700 26px system-ui, sans-serif", h: 58, align: "right" });
+
+  // ---- Selos de confiança (nota / frete grátis / menor preço) — só os
+  // que forem REAIS, nunca inventa nenhum ----
+  const selos = [];
+  if (o.nota) selos.push({ texto: `★ ${o.nota}`, bg: "#FBBF24" });
+  if (o.freteGratis) selos.push({ texto: "Frete grátis", bg: "#3B82F6" });
+  if (o.ehMenorPreco && antigo > 0) selos.push({ texto: "Menor preço em 30 dias", bg: "#EF4444" });
+  let selosX = 48;
+  const selosY = painelY + 40;
+  ctx.font = "700 24px system-ui, sans-serif";
+  for (const s of selos) {
+    const w = drawPill(ctx, selosX, selosY, s.texto, { bg: s.bg, font: "700 24px system-ui, sans-serif", h: 46, padX: 18 });
+    selosX += w + 14;
+  }
+
+  // ---- Nome do produto ----
+  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#fff";
+  ctx.font = "800 46px system-ui, sans-serif";
+  const tituloY = selos.length ? painelY + 130 : painelY + 90;
+  wrapText(ctx, nome, 48, tituloY, W - 96, 54, 2);
+
+  // ---- Preços ----
+  const precoY = H - 150;
   if (antigo > 0) {
-    ctx.font = "20px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.5)";
-    ctx.fillText(fmt(antigo), 60, H - 150);
+    ctx.font = "500 30px system-ui, sans-serif";
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillText(fmt(antigo), 48, precoY);
     const sw = ctx.measureText(fmt(antigo)).width;
-    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.beginPath();
-    ctx.moveTo(60, H - 156); ctx.lineTo(60 + sw, H - 156); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(48, precoY - 10); ctx.lineTo(48 + sw, precoY - 10); ctx.stroke();
   }
-  ctx.font = "bold 42px sans-serif"; ctx.fillStyle = "#34D399";
-  ctx.fillText(fmt(atual), 60, H - 100);
+  ctx.font = "900 64px system-ui, sans-serif";
+  ctx.fillStyle = "#34D399";
+  ctx.fillText(fmt(atual), 48, precoY + 62);
+
+  if (o.pixOnly) {
+    ctx.font = "600 24px system-ui, sans-serif";
+    ctx.fillStyle = "#FBBF24";
+    ctx.fillText("💳 preço no Pix", 48, precoY + 96);
+  }
+
   if (o.cupom) {
-    ctx.fillStyle = "#7C3AED"; ctx.beginPath(); ctx.roundRect(60, H - 75, 220, 44, 10); ctx.fill();
-    ctx.fillStyle = "#fff"; ctx.font = "bold 18px sans-serif";
-    ctx.fillText(`CUPOM: ${o.cupom}`, 75, H - 47);
+    drawPill(ctx, W - 48, precoY - 6, `CUPOM: ${o.cupom}`, { bg: "#7C3AED", fg: "#fff", font: "700 24px system-ui, sans-serif", h: 48, align: "right" });
   }
+
+  // ---- Rodapé (marca — troque o texto pelo seu @ do Instagram) ----
+  ctx.font = "600 22px system-ui, sans-serif";
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
+  ctx.textAlign = "center";
+  ctx.fillText("🛍️ ofertas todo dia", W / 2, H - 28);
 }
+
 function drawBanner(canvas, o) {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const ctx = canvas.getContext("2d");
     const W = canvas.width, H = canvas.height;
-    const paint = () => {
+    let avisouFotoFalhou = false;
+
+    const paintSemFoto = () => {
       const grad = ctx.createLinearGradient(0, 0, W, H);
-      grad.addColorStop(0, "#0A0E14"); grad.addColorStop(1, o.cor || "#1e3a8a");
+      grad.addColorStop(0, o.cor || "#1e3a8a"); grad.addColorStop(1, "#0A0E14");
       ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = "rgba(255,255,255,0.06)"; ctx.fillRect(60, 70, W - 120, H - 320);
-      ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.font = "bold 28px sans-serif"; ctx.textAlign = "center";
-      ctx.fillText("📦", W / 2, 70 + (H - 320) / 2 + 10);
-      drawRest(ctx, W, H, o); resolve(canvas.toDataURL("image/png"));
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      ctx.font = "160px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("📦", W / 2, H * 0.32);
+      drawRest(ctx, W, H, o);
+      resolve(canvas.toDataURL("image/png")); // aqui não tem foto de outro site, nunca "mancha" o canvas
     };
+
     if (o.imagemUrl) {
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = () => {
-        const grad = ctx.createLinearGradient(0, 0, W, H);
-        grad.addColorStop(0, "#0A0E14"); grad.addColorStop(1, o.cor || "#1e3a8a");
-        ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
-        ctx.drawImage(img, 60, 70, W - 120, H - 320);
-        drawRest(ctx, W, H, o); resolve(canvas.toDataURL("image/png"));
+        try {
+          ctx.fillStyle = "#0A0E14"; ctx.fillRect(0, 0, W, H);
+          drawImageCover(ctx, img, 0, 0, W, H * 0.68);
+          drawRest(ctx, W, H, o);
+          resolve(canvas.toDataURL("image/png"));
+        } catch (e) {
+          // Canvas "manchado" (CORS) — o site da foto não libera reexportar
+          // a imagem. Em vez de travar, gera o banner sem a foto (ainda sai
+          // profissional) — melhor um banner sem foto do que nenhum.
+          if (!avisouFotoFalhou) {
+            avisouFotoFalhou = true;
+            console.warn("[Banner] não deu pra usar a foto do produto (CORS) — gerando sem foto:", e.message);
+          }
+          paintSemFoto();
+        }
       };
-      img.onerror = paint; img.src = o.imagemUrl;
-    } else paint();
+      img.onerror = paintSemFoto;
+      img.src = o.imagemUrl;
+    } else paintSemFoto();
   });
 }
 
