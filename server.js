@@ -1,8 +1,8 @@
 // server.js
-// Servidor local leve — sem Railway.
-// Rode com: node server.js
-// Útil apenas para testar endpoints manualmente no seu computador.
-// A varredura recorrente de ofertas roda pelo GitHub Actions (cacador.yml).
+// Servidor do backend — expõe os endpoints do painel E o webhook do
+// Instagram (Comment-to-DM). O caçador de ofertas antigo continua aqui
+// por enquanto (ver nota "CÓDIGO ANTIGO" mais abaixo) — não foi removido
+// ainda, só deixou de ser o foco principal.
 
 require('dotenv').config();
 const express = require('express');
@@ -17,11 +17,48 @@ const { calcularScoreOferta } = require('./score');
 const { testarConexaoInstagram, publicarImagemInstagram } = require('./instagram');
 const { getFirestoreAdmin, getStorageBucket, verificarIdToken } = require('./firebaseAdmin');
 
+// ---- Novo: automação de comentários do Instagram ----
+const webhookInstagram = require('./src/instagram/webhook');
+const mediaInstagram = require('./src/instagram/media');
+const { exigirAutenticacao } = require('./src/middleware/auth');
+const { verificarAssinaturaMeta } = require('./src/middleware/metaSignature');
+const automationsRepo = require('./src/automations/repository');
+const { dryRunAtivo } = require('./src/instagram/privateReplies');
+const logger = require('./src/utils/logger');
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.use(express.json({ limit: '8mb' }));
+// CORS: em produção, restrinja com ALLOWED_ORIGINS (separado por vírgula).
+// Sem essa variável, libera geral (bom só pra desenvolvimento local) —
+// avisa no log pra não passar despercebido.
+const origensPermitidas = (process.env.ALLOWED_ORIGINS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
+if (origensPermitidas.length) {
+  app.use(cors({ origin: origensPermitidas }));
+} else {
+  logger.warn('[Servidor]', 'ALLOWED_ORIGINS não configurado — CORS liberado geral (*). Configure em produção.');
+  app.use(cors());
+}
+
+// IMPORTANTE: "verify" guarda o corpo bruto (Buffer) em req.rawBody ANTES
+// do express.json() parsear — o webhook da Meta precisa desse corpo bruto
+// pra validar a assinatura (X-Hub-Signature-256). Sem isso, o hash nunca
+// bate e todo webhook seria rejeitado.
+app.use(express.json({
+  limit: '8mb',
+  verify: (req, res, buf) => { req.rawBody = buf; },
+}));
+
+// ---- Webhook do Instagram ----
+// GET (verificação) não precisa de assinatura — ainda não existe corpo
+// nem assinatura nesse momento, só os query params da Meta.
+// POST (eventos de verdade) É protegido pela assinatura — o middleware
+// roda ANTES do router, e só deixa passar (next()) se a assinatura bater.
+app.post('/webhook/instagram', verificarAssinaturaMeta);
+app.use(webhookInstagram);
+
 
 function limparTextoInstagram(texto) {
   return String(texto || '')
@@ -270,6 +307,109 @@ app.post('/api/instagram/publish', async (req, res) => {
   }
 });
 
+// ==================== Automação de comentários do Instagram ====================
+
+// GET /api/instagram/media — lista publicações da conta conectada, pra
+// montar automação sem precisar digitar media_id na mão.
+app.get('/api/instagram/media', exigirAutenticacao, async (req, res) => {
+  try {
+    const { after, limit } = req.query;
+    const resultado = await mediaInstagram.listarMedia({ after, limit });
+    res.json({ ok: true, ...resultado });
+  } catch (e) {
+    res.status(e.status || 400).json({ ok: false, erro: e.message, detalhe: e.meta || null });
+  }
+});
+
+// GET /api/instagram/automations — automações do usuário logado
+app.get('/api/instagram/automations', exigirAutenticacao, async (req, res) => {
+  try {
+    const lista = await automationsRepo.listarAutomationsPorDono(req.usuario.uid);
+    res.json({ ok: true, automations: lista });
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
+// POST /api/instagram/automations — cria automação nova
+app.post('/api/instagram/automations', exigirAutenticacao, async (req, res) => {
+  try {
+    const { mediaId } = req.body || {};
+    if (!mediaId) return res.status(400).json({ ok: false, erro: 'Campo obrigatório: mediaId' });
+    const criada = await automationsRepo.criarAutomation(req.usuario.uid, req.body);
+    res.json({ ok: true, automation: criada });
+  } catch (e) {
+    res.status(e.status || 500).json({ ok: false, erro: e.message });
+  }
+});
+
+// PUT /api/instagram/automations/:id — edita (ativar/pausar, trocar gatilhos etc.)
+app.put('/api/instagram/automations/:id', exigirAutenticacao, async (req, res) => {
+  try {
+    const atualizada = await automationsRepo.atualizarAutomation(req.params.id, req.usuario.uid, req.body || {});
+    res.json({ ok: true, automation: atualizada });
+  } catch (e) {
+    res.status(e.status || 500).json({ ok: false, erro: e.message });
+  }
+});
+
+// DELETE /api/instagram/automations/:id
+app.delete('/api/instagram/automations/:id', exigirAutenticacao, async (req, res) => {
+  try {
+    await automationsRepo.excluirAutomation(req.params.id, req.usuario.uid);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 500).json({ ok: false, erro: e.message });
+  }
+});
+
+// GET /api/instagram/history — histórico de comentários processados
+app.get('/api/instagram/history', exigirAutenticacao, async (req, res) => {
+  try {
+    const { mediaId, status, limite } = req.query;
+    const historico = await automationsRepo.listarHistorico({ ownerUid: req.usuario.uid, mediaId, status, limite });
+    res.json({ ok: true, historico });
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
+// GET /api/instagram/metrics/:mediaId — métricas reais de uma publicação
+app.get('/api/instagram/metrics/:mediaId', exigirAutenticacao, async (req, res) => {
+  try {
+    const metricas = await automationsRepo.buscarMetricas(req.params.mediaId);
+    res.json({ ok: true, metricas });
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
+// GET /api/diagnostico — status detalhado, autenticado, SEM vazar segredo
+// nenhum (nunca mostra o token, só se ele existe/parece válido).
+app.get('/api/diagnostico', exigirAutenticacao, async (req, res) => {
+  const diagnostico = {
+    firebase: true,
+    instagramConfigurado: !!(process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_USER_ID),
+    webhookConfigurado: !!process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN,
+    metaAppSecretConfigurado: !!process.env.META_APP_SECRET,
+    versaoGraphAPI: process.env.META_GRAPH_VERSION || 'v26.0',
+    dryRun: dryRunAtivo(),
+    token: 'status desconhecido',
+  };
+  try {
+    await testarConexaoInstagram();
+    diagnostico.token = '✅ válido';
+    diagnostico.instagramConectado = true;
+  } catch (e) {
+    diagnostico.token = '⚠️ precisa de atenção';
+    diagnostico.instagramConectado = false;
+    diagnostico.ultimoErro = e.message;
+  }
+  res.json(diagnostico);
+});
+
+// ==================== Fim automação de comentários ====================
+
 // GET /api/status
 app.get('/api/status', (req, res) => {
   res.json({
@@ -285,7 +425,9 @@ app.get('/api/bots', (req, res) => {
   res.json({ cacador: true, copywriter: true, classificador: true });
 });
 
-// GET /api/health
+// GET /api/health — público, informação mínima de propósito (sem
+// segredo, sem detalhe de configuração — isso fica no /api/diagnostico,
+// que exige login).
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, server: true, timestamp: new Date().toISOString() });
 });
@@ -299,4 +441,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`[Servidor] Rodando em http://localhost:${PORT}`);
   console.log('[Servidor] A varredura recorrente roda pelo GitHub Actions — não por este processo.');
+  console.log(`[Servidor] Instagram DRY_RUN: ${dryRunAtivo() ? 'ATIVO (não envia DM de verdade)' : 'DESATIVADO (envia DM de verdade!)'}`);
 });

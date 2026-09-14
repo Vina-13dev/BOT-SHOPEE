@@ -1,0 +1,101 @@
+rules_version = '2';
+
+// Regras do Firestore.
+//
+// Princípios:
+// - Firebase Admin (backend/GitHub Actions) IGNORA essas regras por
+//   completo — elas só valem pra acesso direto do navegador.
+// - Cada usuário só lê/escreve os próprios dados (por uid).
+// - Coleções críticas da automação do Instagram (comentários processados,
+//   métricas) NUNCA são graváveis pelo navegador — só o backend escreve,
+//   porque a idempotência (evitar 2 DMs pro mesmo comentário) depende de
+//   transação no servidor, não pode confiar em escrita direta do cliente.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autenticado() {
+      return request.auth != null;
+    }
+    function donoDoDoc() {
+      return autenticado() && request.auth.uid == resource.data.ownerUid;
+    }
+    function donoDoNovoDoc() {
+      return autenticado() && request.auth.uid == request.resource.data.ownerUid;
+    }
+
+    // ---------- Perfil de afiliado, links prontos, estatísticas ----------
+    // Um doc por uid — só o próprio dono lê/escreve o próprio.
+    match /config_afiliado/{uid} {
+      allow read, write: if autenticado() && request.auth.uid == uid;
+    }
+    match /links_prontos/{uid} {
+      allow read, write: if autenticado() && request.auth.uid == uid;
+    }
+    match /estatisticas/{uid} {
+      allow read, write: if autenticado() && request.auth.uid == uid;
+    }
+
+    // ---------- Ofertas (caçador antigo) ----------
+    // Lista compartilhada, só leitura pública — só o backend (Admin, que
+    // ignora essas regras) escreve.
+    match /ofertas/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /historico/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /historico_precos/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /bot_status/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /logs/{id} {
+      allow read: if false; // só o backend precisa ver
+      allow write: if false;
+    }
+    match /publicacoes_instagram/{id} {
+      allow read: if autenticado();
+      allow write: if false; // só o backend grava status de publicação
+    }
+
+    // ---------- Automação de comentários do Instagram (novo) ----------
+    // Automação: o dono pode ler/criar/editar/excluir A PRÓPRIA. Nunca
+    // pode ler/editar a de outra pessoa nem criar uma automação "em nome"
+    // de outro uid.
+    match /instagram_automations/{id} {
+      allow read: if donoDoDoc();
+      allow create: if donoDoNovoDoc();
+      allow update, delete: if donoDoDoc();
+    }
+
+    // Comentários processados / métricas: idempotência e contagem real
+    // dependem de transação no servidor — o navegador NUNCA escreve
+    // direto aqui, só lê é bloqueado também (o painel usa o endpoint
+    // autenticado GET /api/instagram/history, que já filtra por dono).
+    match /instagram_processed_comments/{id} {
+      allow read, write: if false;
+    }
+    match /instagram_metrics/{id} {
+      allow read, write: if false;
+    }
+    match /instagram_accounts/{id} {
+      allow read, write: if false;
+    }
+    match /instagram_media/{id} {
+      allow read, write: if false;
+    }
+    match /instagram_events/{id} {
+      allow read, write: if false;
+    }
+
+    // Qualquer coisa não listada acima: bloqueada por padrão.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
